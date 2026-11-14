@@ -11,11 +11,13 @@ import {
   Compass,
   Flag,
   Layers,
+  Loader2,
   Plus,
   RefreshCw,
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  Wifi,
   Wrench,
 } from 'lucide-react';
 import { CAREER_ROLES, SKILL_ASSESSMENT_QUESTIONS } from '../data/careerRoles';
@@ -42,6 +44,13 @@ export const RoadmapPage: React.FC = () => {
     changeTargetRole,
     submitSkillAssessment,
     rerunAgentPipeline,
+    runDemoFallbackPipeline,
+    checkGeminiHealth,
+    geminiHealth,
+    pipelineLoading,
+    pipelineProgressLabel,
+    aiErrorMessage,
+    dismissAiError,
     resetDemoWorkspace,
     adaptationBanner,
     dismissAdaptationBanner,
@@ -214,10 +223,12 @@ export const RoadmapPage: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => rerunAgentPipeline(true)}
-              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-medium transition-colors"
+              disabled={pipelineLoading}
+              onClick={() => void rerunAgentPipeline(true)}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-60 text-xs font-medium transition-colors inline-flex items-center gap-1.5"
             >
-              Re-Run 4 Agents
+              {pipelineLoading && <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />}
+              <span>{pipelineLoading ? pipelineProgressLabel ?? 'Running 4 Agents...' : 'Re-Run 4 Agents'}</span>
             </button>
 
             <button
@@ -231,6 +242,89 @@ export const RoadmapPage: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {/* Honest AI Orchestration Status Bar */}
+      <div
+        role="status"
+        className={`rounded-2xl border px-5 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
+          agentPipelineRun.executionMode === 'live-gemini' && geminiHealth.connected
+            ? 'bg-[var(--sp-accent-soft)] border-[var(--sp-accent)] text-[var(--sp-ink)]'
+            : agentPipelineRun.executionMode === 'error' || aiErrorMessage
+              ? 'bg-[var(--sp-danger-soft)] border-[var(--sp-danger)] text-[var(--sp-ink)]'
+              : 'bg-[var(--sp-secondary-soft)] border-[var(--sp-border)] text-[var(--sp-ink)]'
+        }`}
+      >
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+          <Wifi
+            className={`w-4 h-4 shrink-0 mt-0.5 sm:mt-0 ${
+              agentPipelineRun.executionMode === 'live-gemini' && geminiHealth.connected
+                ? 'text-[var(--sp-accent)]'
+                : agentPipelineRun.executionMode === 'error' || aiErrorMessage
+                  ? 'text-[var(--sp-danger)]'
+                  : 'text-[var(--sp-secondary)]'
+            }`}
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <span className="font-semibold block">
+              {agentPipelineRun.executionMode === 'live-gemini' && geminiHealth.connected
+                ? `LIVE GEMINI CONNECTED (${agentPipelineRun.modelUsed ?? geminiHealth.model})`
+                : agentPipelineRun.executionMode === 'error' || aiErrorMessage
+                  ? 'GEMINI API ERROR (Live Orchestration Failed)'
+                  : geminiHealth.configured && geminiHealth.connected
+                    ? `LIVE GEMINI READY (${geminiHealth.model} · Showing Initial Snapshot Until Run)`
+                    : 'DEMO MODE (Deterministic Local Agents — Server GEMINI_API_KEY Not Configured)'}
+            </span>
+            <span className="text-[var(--sp-ink-muted)] block truncate sm:whitespace-normal">
+              {pipelineLoading && pipelineProgressLabel
+                ? pipelineProgressLabel
+                : aiErrorMessage ?? geminiHealth.message}
+              {!pipelineLoading && geminiHealth.latencyMs !== undefined
+                ? ` · Probe latency: ${geminiHealth.latencyMs}ms`
+                : ''}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={geminiHealth.checking || pipelineLoading}
+            onClick={() => void checkGeminiHealth(true)}
+            className="px-3 py-1.5 rounded-xl bg-[var(--sp-surface)] border border-[var(--sp-border)] text-[var(--sp-ink)] font-semibold hover:border-[var(--sp-accent)] disabled:opacity-60 inline-flex items-center gap-1.5"
+          >
+            {geminiHealth.checking && <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />}
+            <span>Test Live Gemini Connection</span>
+          </button>
+          {(agentPipelineRun.executionMode === 'error' || aiErrorMessage) && (
+            <>
+              <button
+                type="button"
+                onClick={() => void rerunAgentPipeline(true)}
+                className="px-3 py-1.5 rounded-xl bg-[var(--sp-accent)] text-[var(--sp-accent-ink)] font-semibold"
+              >
+                Retry Live Gemini
+              </button>
+              <button
+                type="button"
+                onClick={() => runDemoFallbackPipeline(true)}
+                className="px-3 py-1.5 rounded-xl bg-[var(--sp-surface)] border border-[var(--sp-border)] text-[var(--sp-ink)] font-semibold"
+              >
+                Use Demo Fallback
+              </button>
+              {aiErrorMessage && (
+                <button
+                  type="button"
+                  onClick={dismissAiError}
+                  className="text-[11px] font-semibold underline px-1"
+                >
+                  Dismiss
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Live Adaptation Alert Banner */}
       {adaptationBanner && (
@@ -582,27 +676,46 @@ export const RoadmapPage: React.FC = () => {
                 <Bot className="w-5 h-5 text-[var(--sp-accent)]" aria-hidden="true" />
                 <span>Multi-Agent Collaboration Pipeline</span>
               </h2>
-              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-[var(--sp-secondary-soft)] text-[var(--sp-secondary)]">
+              <span
+                className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold ${
+                  agentPipelineRun.executionMode === 'live-gemini'
+                    ? 'bg-[var(--sp-accent-soft)] text-[var(--sp-accent)]'
+                    : agentPipelineRun.executionMode === 'error'
+                      ? 'bg-[var(--sp-danger-soft)] text-[var(--sp-danger)]'
+                      : 'bg-[var(--sp-secondary-soft)] text-[var(--sp-secondary)]'
+                }`}
+              >
                 {agentPipelineRun.modeBanner}
               </span>
             </div>
             <p className="text-xs text-[var(--sp-ink-muted)] mt-1">
-              {agentPipelineRun.executedAtLabel} · Four separate deterministic specialist functions chained with explicit typed inputs, outputs, and handoffs.
+              {agentPipelineRun.executedAtLabel} · Four specialist agents chained sequentially with structured JSON inputs, outputs, and inter-agent handoffs.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => rerunAgentPipeline(true)}
-            className="px-3.5 py-2 rounded-xl bg-[var(--sp-accent)] text-[var(--sp-accent-ink)] text-xs font-semibold inline-flex items-center gap-1.5 self-start lg:self-auto"
+            disabled={pipelineLoading}
+            onClick={() => void rerunAgentPipeline(true)}
+            className="px-3.5 py-2 rounded-xl bg-[var(--sp-accent)] text-[var(--sp-accent-ink)] text-xs font-semibold inline-flex items-center gap-1.5 self-start lg:self-auto disabled:opacity-60"
           >
-            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Re-Run Pipeline</span>
+            {pipelineLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+            )}
+            <span>{pipelineLoading ? pipelineProgressLabel ?? 'Executing Pipeline...' : 'Re-Run Pipeline'}</span>
           </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {agentPipelineRun.traces.map((trace) => {
             const expanded = expandedAgentId === trace.agentId;
+            const statusBadge =
+              trace.executionStatus === 'live-gemini'
+                ? `Live Gemini${trace.latencyMs ? ` · ${trace.latencyMs}ms` : ''}`
+                : trace.executionStatus === 'error'
+                  ? 'API Error'
+                  : 'Demo Fallback';
             return (
               <div
                 key={trace.agentId}
@@ -611,6 +724,17 @@ export const RoadmapPage: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-sm font-semibold text-[var(--sp-ink)]">{trace.agentName}</h3>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold shrink-0 tabular-nums ${
+                        trace.executionStatus === 'live-gemini'
+                          ? 'bg-[var(--sp-accent-soft)] text-[var(--sp-accent)]'
+                          : trace.executionStatus === 'error'
+                            ? 'bg-[var(--sp-danger-soft)] text-[var(--sp-danger)]'
+                            : 'bg-[var(--sp-surface)] border border-[var(--sp-border)] text-[var(--sp-secondary)]'
+                      }`}
+                    >
+                      {statusBadge}
+                    </span>
                   </div>
                   <p className="text-[11px] text-[var(--sp-ink-muted)] leading-relaxed">
                     {trace.responsibility}
@@ -657,6 +781,12 @@ export const RoadmapPage: React.FC = () => {
               Final Combined Pipeline Recommendation
             </strong>
             <span>{agentPipelineRun.finalCombinedRecommendation}</span>
+            {evaluatorOut.requestedChanges && evaluatorOut.requestedChanges.length > 0 && (
+              <div className="mt-1.5 text-xs text-[var(--sp-danger)] font-medium">
+                Evaluator Feedback → Learning Planner:{' '}
+                {evaluatorOut.requestedChanges.join(' · ')}
+              </div>
+            )}
             {evaluatorOut.recommendedActions.length > 0 && (
               <ul className="mt-1.5 space-y-0.5 text-xs text-[var(--sp-ink-muted)]">
                 {evaluatorOut.recommendedActions.map((act) => (

@@ -18,6 +18,7 @@ import { CollectibleIllustration } from '../components/CollectibleIllustration';
 import { IllustratedFrame } from '../components/IllustratedFrame';
 import { VisualRewardStage } from '../components/VisualRewardStage';
 import { HabitatDecoration } from '../types';
+import imgWillowHabitat from '../assets/images/habitat_willow_island_1794634526785.jpg';
 
 const RESOURCE_LABELS = {
   acorns: 'Acorns',
@@ -168,7 +169,7 @@ export const HabitatPage: React.FC = () => {
             }`}
           >
             <IllustratedFrame
-              src="/src/assets/images/habitat_willow_island_1794634526785.jpg"
+              src={imgWillowHabitat}
               alt="Whispering Willow Grove interactive world"
               fallbackTitle="Whispering Willow Grove"
               className="w-full h-full"

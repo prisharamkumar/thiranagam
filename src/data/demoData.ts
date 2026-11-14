@@ -28,6 +28,14 @@ import {
   ThemePresetId,
   ThemeSettings,
 } from '../types';
+import imgPattu from '../assets/images/companion_cat_pattu_1794636179017.jpg';
+import imgThen from '../assets/images/companion_bear_then_1794636159338.jpg';
+import imgSembu from '../assets/images/companion_fox_bramble_1794634527595.jpg';
+import imgMalli from '../assets/images/companion_bunny_malli_1794636152226.jpg';
+import imgOwl from '../assets/images/companion_owl_pip_1794634527914.jpg';
+import imgOtter from '../assets/images/companion_otter_moss_1794634528667.jpg';
+import imgSanctumLibrary from '../assets/images/sanctum_library_1794634532023.jpg';
+import imgSanctumAstronomy from '../assets/images/sanctum_astronomy_1794634530094.jpg';
 
 export const formatIsoDate = (date: Date): string => {
   const y = date.getFullYear();
@@ -281,7 +289,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'Pattu',
     species: 'Cat',
     role: 'Rest & Focus Cadence',
-    imageUrl: '/src/assets/images/companion_cat_pattu_1794636179017.jpg',
+    imageUrl: imgPattu,
     perkTitle: 'Stillness Cushion',
     studyNote: 'Ready whenever you want to settle in.',
   },
@@ -290,7 +298,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'Then',
     species: 'Bear',
     role: 'Honey Jar Keeper',
-    imageUrl: '/src/assets/images/companion_bear_then_1794636159338.jpg',
+    imageUrl: imgThen,
     perkTitle: 'Golden Milestone',
     studyNote: 'Every small completed step fills the jar.',
   },
@@ -299,7 +307,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'Sembu',
     species: 'Fox',
     role: 'Warm Start Reader',
-    imageUrl: '/src/assets/images/companion_fox_bramble_1794634527595.jpg',
+    imageUrl: imgSembu,
     perkTitle: 'Study Lantern',
     studyNote: 'Two unhurried minutes is plenty to begin.',
   },
@@ -308,7 +316,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'Malli',
     species: 'Bunny',
     role: 'Jasmine Grower',
-    imageUrl: '/src/assets/images/companion_bunny_malli_1794636152226.jpg',
+    imageUrl: imgMalli,
     perkTitle: 'Jasmine Vine',
     studyNote: 'Small wins bloom quietly in their own time.',
   },
@@ -317,7 +325,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'Barn Owl',
     species: 'Owl',
     role: 'Pattern Scholar',
-    imageUrl: '/src/assets/images/companion_owl_pip_1794634527914.jpg',
+    imageUrl: imgOwl,
     perkTitle: 'Archival Stack',
     studyNote: 'One clear paragraph at a time.',
   },
@@ -326,7 +334,7 @@ export const COMPANIONS: Companion[] = [
     defaultName: 'River Otter',
     species: 'Otter',
     role: 'Curiosity Archivist',
-    imageUrl: '/src/assets/images/companion_otter_moss_1794634528667.jpg',
+    imageUrl: imgOtter,
     perkTitle: 'Spring Pebbles',
     studyNote: 'Every note stays safely in your satchel.',
   },
@@ -929,7 +937,7 @@ export const SANCTUM_ENVIRONMENTS: SanctumEnvironment[] = [
     atmosphere: 'Sunlit Timber & Botanical Ferns',
     recommendedSound: 'library',
     recommendedLighting: 'warm',
-    imageUrl: '/src/assets/images/sanctum_library_1794634532023.jpg',
+    imageUrl: imgSanctumLibrary,
     gradientClass: 'from-[#2D4739] via-[#516E57] to-[#D8C7A6]',
     accentHex: '#264736',
     description: 'Tall arched oak shelves, dappled afternoon sunbeams, and quiet page turns.',
@@ -940,7 +948,7 @@ export const SANCTUM_ENVIRONMENTS: SanctumEnvironment[] = [
     atmosphere: 'Lavender Starlight & Warm Candlelight',
     recommendedSound: 'brownNoise',
     recommendedLighting: 'twilight',
-    imageUrl: '/src/assets/images/sanctum_astronomy_1794634530094.jpg',
+    imageUrl: imgSanctumAstronomy,
     gradientClass: 'from-[#282442] via-[#4D4575] to-[#B79E82]',
     accentHex: '#705DA0',
     description: 'Brass astrolabes, calm night sky constellations, and steady candle glow.',

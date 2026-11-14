@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   COMPANIONS,
   DEFAULT_ADHD_PREFERENCES,
@@ -32,6 +32,8 @@ import {
 import {
   ADHDPreferences,
   AgentPipelineResult,
+  AgentTrace,
+  CareerMatchingOutput,
   CareerRoleId,
   CertificationRecord,
   CompanionId,
@@ -41,10 +43,12 @@ import {
   EnergyLevel,
   EnvironmentId,
   FocusSessionRecord,
+  GeminiHealthStatus,
   GentleIntention,
   GrowthMilestone,
   HabitatDecoration,
   LastInterruptedContext,
+  LearningPlannerOutput,
   LearningPreferences,
   LightingPreset,
   MentorMessage,
@@ -52,6 +56,7 @@ import {
   MilestoneItem,
   NotificationPreferences,
   PageId,
+  ProgressEvaluatorOutput,
   ProjectRecord,
   QuizAttempt,
   ResearchPaper,
@@ -59,6 +64,7 @@ import {
   RewardBurstEvent,
   RoadmapModule,
   SettingsSectionTab,
+  SkillAnalystOutput,
   SkillAssessmentRecord,
   SkillChangeRecord,
   SkillKind,
@@ -505,8 +511,16 @@ interface AppStateContextValue extends PersistedState {
     total: number,
     note?: string
   ) => SkillAssessmentRecord;
-  rerunAgentPipeline: (syncModules?: boolean) => void;
-  askMentor: (question: string) => void;
+  rerunAgentPipeline: (syncModules?: boolean) => Promise<void>;
+  runDemoFallbackPipeline: (syncModules?: boolean) => void;
+  askMentor: (question: string) => Promise<void>;
+  checkGeminiHealth: (probe?: boolean) => Promise<GeminiHealthStatus>;
+  geminiHealth: GeminiHealthStatus;
+  pipelineLoading: boolean;
+  pipelineProgressLabel: string | null;
+  mentorLoading: boolean;
+  aiErrorMessage: string | null;
+  dismissAiError: () => void;
   dismissAdaptationBanner: () => void;
   totalFocusMinutesToday: number;
   totalFocusMinutesAllTime: number;
@@ -549,6 +563,25 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [sessionToast, setSessionToast] = useState<string | null>(null);
   const [justCelebrated, setJustCelebrated] = useState(false);
   const [companionDockMinimized, setCompanionDockMinimized] = useState(false);
+
+  const [geminiHealth, setGeminiHealth] = useState<GeminiHealthStatus>({
+    checking: true,
+    configured: false,
+    connected: false,
+    model: 'gemini-4-hydrogen',
+    mode: 'demo-mode',
+    message: 'Checking server Gemini API status...',
+  });
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [pipelineProgressLabel, setPipelineProgressLabel] = useState<string | null>(null);
+  const [mentorLoading, setMentorLoading] = useState(false);
+  const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const geminiHealthRef = useRef(geminiHealth);
+  geminiHealthRef.current = geminiHealth;
+  const orchestrationSeqRef = useRef(0);
 
   const openThemeStudio = () => {
     setSettingsTab('themes');
@@ -1380,214 +1413,677 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     URL.revokeObjectURL(url);
   };
 
+  const createAdaptationMicrotask = (skillName: string, revMod: RoadmapModule): Microtask => ({
+    id: `mt-adapt-${Date.now()}`,
+    title: `[Adapted Revision] ${revMod.exercises?.[0] ?? revMod.questTitle}`,
+    moduleId: revMod.id,
+    moduleTitle: revMod.title,
+    estimatedMinutes: 20,
+    completed: false,
+    energyFit: 'low',
+    substeps: [
+      {
+        id: `sub-adapt-1-${Date.now()}`,
+        text: revMod.resources[0]?.title ?? `Review ${skillName} fundamentals`,
+        done: false,
+      },
+      {
+        id: `sub-adapt-2-${Date.now()}`,
+        text: revMod.exercises?.[1] ?? `Complete guided ${skillName} check`,
+        done: false,
+      },
+    ],
+  });
+
+  const executeAgentOrchestration = async (opts: {
+    profile: StudentProfile;
+    assessments: SkillAssessmentRecord[];
+    currentModules: RoadmapModule[];
+    syncModules?: boolean;
+    bannerBuilder?: (pipeline: AgentPipelineResult) => string | null;
+    triggeredSkillRegression?: { skillName: string; pct: number; newVerifiedLevel: number };
+  }) => {
+    const {
+      profile,
+      assessments,
+      currentModules,
+      syncModules = true,
+      bannerBuilder,
+      triggeredSkillRegression,
+    } = opts;
+
+    const seqId = ++orchestrationSeqRef.current;
+    setPipelineLoading(true);
+    setPipelineProgressLabel('Step 1/4: Skill Analyst Agent (Gemini)...');
+    setAiErrorMessage(null);
+
+    const invokeStep = async <TOut,>(
+      step: 'skill-analyst' | 'career-matching' | 'learning-planner' | 'progress-evaluator',
+      extra: Record<string, unknown> = {}
+    ): Promise<
+      | { ok: true; trace: AgentTrace<unknown, TOut>; modelUsed: string }
+      | { ok: false; kind: 'demo-not-configured' | 'error'; message: string }
+    > => {
+      try {
+        const res = await fetch('/api/agents/step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            step,
+            profile,
+            assessments,
+            currentModules,
+            learningPreferences: stateRef.current.learningPreferences,
+            adhdPreferences: stateRef.current.adhdPreferences,
+            focusMinutesToday: totalFocusMinutesToday,
+            ...extra,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          trace?: AgentTrace<unknown, TOut>;
+          modelUsed?: string;
+          code?: string;
+          error?: string;
+        };
+
+        if (res.ok && body.trace) {
+          return {
+            ok: true,
+            trace: body.trace,
+            modelUsed: body.modelUsed || body.trace.modelUsed || 'gemini-4-hydrogen',
+          };
+        }
+
+        if (res.status === 503 || body.code === 'GEMINI_NOT_CONFIGURED') {
+          return {
+            ok: false,
+            kind: 'demo-not-configured',
+            message:
+              body.error ||
+              'GEMINI_API_KEY is not configured on the server. Running clearly labeled Demo Mode agents.',
+          };
+        }
+
+        return {
+          ok: false,
+          kind: 'error',
+          message: body.error || `Gemini step "${step}" failed (HTTP ${res.status}).`,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          kind: 'error',
+          message:
+            err instanceof Error ? err.message : `Network error calling /api/agents/step (${step}).`,
+        };
+      }
+    };
+
+    const handleDemoFallback = (notice: string) => {
+      if (orchestrationSeqRef.current !== seqId) return;
+      const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setGeminiHealth({
+        checking: false,
+        configured: false,
+        connected: false,
+        model: 'gemini-4-hydrogen',
+        mode: 'demo-mode',
+        message: notice,
+        lastCheckedAt: checkedAt,
+      });
+
+      const demoPipeline = runAgentCollaborationPipeline({
+        profile,
+        assessments,
+        currentModules,
+      });
+      const generatedModules = demoPipeline.traces[2].output.generatedModules;
+      const computedBanner = bannerBuilder ? bannerBuilder(demoPipeline) : undefined;
+
+      setState((prev) => {
+        let nextMicrotasks = prev.microtasks;
+        let nextHistory = prev.skillLevelHistory;
+
+        if (triggeredSkillRegression && demoPipeline.adaptationApplied) {
+          const revMod = generatedModules.find((m) => m.isAdaptationInserted);
+          if (revMod) {
+            nextMicrotasks = [
+              createAdaptationMicrotask(triggeredSkillRegression.skillName, revMod),
+              ...prev.microtasks.filter((t) => t.moduleId !== revMod.id),
+            ];
+            nextHistory = [
+              {
+                id: `sh-adapt-${Date.now()}`,
+                skillName: triggeredSkillRegression.skillName,
+                fromLevel: triggeredSkillRegression.newVerifiedLevel,
+                toLevel: triggeredSkillRegression.newVerifiedLevel,
+                source: 'adaptation',
+                note: `[Demo Mode] Learning Planner inserted "${revMod.title}" at priority #1 after Progress Evaluator alert.`,
+                timestampLabel: `Today · ${checkedAt}`,
+              },
+              ...prev.skillLevelHistory,
+            ];
+          }
+        }
+
+        const role = getCareerRoleById(profile.targetRoleId);
+        return {
+          ...prev,
+          modules: syncModules ? generatedModules : prev.modules,
+          microtasks: nextMicrotasks,
+          skillLevelHistory: nextHistory,
+          agentPipelineRun: demoPipeline,
+          adaptationBanner:
+            computedBanner !== undefined ? computedBanner : prev.adaptationBanner,
+          deadlineGoal: {
+            ...prev.deadlineGoal,
+            examOrGoalName: `${role.title} Portfolio Milestone`,
+            prioritySubjects:
+              demoPipeline.traces[2].output.orderedGapPriorities.slice(0, 3).join(', ') ||
+              role.title,
+          },
+        };
+      });
+    };
+
+    const handleLiveError = (errMsg: string) => {
+      if (orchestrationSeqRef.current !== seqId) return;
+      setAiErrorMessage(errMsg);
+      setGeminiHealth((prev) => ({
+        ...prev,
+        checking: false,
+        connected: false,
+        mode: 'error',
+        message: errMsg,
+        lastCheckedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }));
+      setState((prev) => ({
+        ...prev,
+        agentPipelineRun: {
+          ...prev.agentPipelineRun,
+          executionMode: 'error',
+          errorDetail: errMsg,
+          modeBanner: `GEMINI API ERROR · ${errMsg}`,
+          traces: prev.agentPipelineRun.traces.map((t) => ({
+            ...t,
+            executionStatus: 'error' as const,
+            modeLabel: 'Gemini API Call Failed',
+          })) as AgentPipelineResult['traces'],
+        },
+      }));
+    };
+
+    try {
+      // Agent 1: Skill Analyst Agent
+      const step1 = await invokeStep<SkillAnalystOutput>('skill-analyst');
+      if (orchestrationSeqRef.current !== seqId) return;
+      if (step1.ok === false) {
+        if (step1.kind === 'demo-not-configured') handleDemoFallback(step1.message);
+        else handleLiveError(step1.message);
+        return;
+      }
+
+      // Agent 2: Career Matching Agent (receives Skill Analyst output)
+      setPipelineProgressLabel('Step 2/4: Career Matching Agent (Gemini)...');
+      const step2 = await invokeStep<CareerMatchingOutput>('career-matching', {
+        analystOutput: step1.trace.output,
+      });
+      if (orchestrationSeqRef.current !== seqId) return;
+      if (step2.ok === false) {
+        if (step2.kind === 'demo-not-configured') handleDemoFallback(step2.message);
+        else handleLiveError(step2.message);
+        return;
+      }
+
+      // Agent 3: Learning Planner Agent (receives Skill Analyst + Career Matching outputs)
+      setPipelineProgressLabel('Step 3/4: Learning Planner Agent (Gemini)...');
+      const step3 = await invokeStep<LearningPlannerOutput>('learning-planner', {
+        analystOutput: step1.trace.output,
+        matchingOutput: step2.trace.output,
+        evaluatorOutput: null,
+      });
+      if (orchestrationSeqRef.current !== seqId) return;
+      if (step3.ok === false) {
+        if (step3.kind === 'demo-not-configured') handleDemoFallback(step3.message);
+        else handleLiveError(step3.message);
+        return;
+      }
+
+      // Agent 4: Progress Evaluator Agent (receives Agents 1-3 outputs)
+      setPipelineProgressLabel('Step 4/4: Progress Evaluator Agent (Gemini)...');
+      const step4 = await invokeStep<ProgressEvaluatorOutput>('progress-evaluator', {
+        analystOutput: step1.trace.output,
+        matchingOutput: step2.trace.output,
+        plannerOutput: step3.trace.output,
+      });
+      if (orchestrationSeqRef.current !== seqId) return;
+      if (step4.ok === false) {
+        if (step4.kind === 'demo-not-configured') handleDemoFallback(step4.message);
+        else handleLiveError(step4.message);
+        return;
+      }
+
+      // Closed-loop D -> C Adaptation Pass when Progress Evaluator flags regression (<60%)
+      let finalTrace3 = step3.trace;
+      if (step4.trace.output.needsRoadmapAdjustment) {
+        setPipelineProgressLabel('Step 5: Learning Planner Adaptation Pass (D→C)...');
+        const step3Adapt = await invokeStep<LearningPlannerOutput>('learning-planner', {
+          analystOutput: step1.trace.output,
+          matchingOutput: step2.trace.output,
+          evaluatorOutput: step4.trace.output,
+        });
+        if (orchestrationSeqRef.current !== seqId) return;
+        if (step3Adapt.ok === false) {
+          if (step3Adapt.kind === 'demo-not-configured') handleDemoFallback(step3Adapt.message);
+          else handleLiveError(step3Adapt.message);
+          return;
+        }
+        finalTrace3 = {
+          ...step3Adapt.trace,
+          latencyMs: (step3.trace.latencyMs ?? 0) + (step3Adapt.trace.latencyMs ?? 0),
+        };
+      }
+
+      const role = getCareerRoleById(profile.targetRoleId);
+      const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const modelUsed = step1.modelUsed || 'gemini-4-hydrogen';
+      const matchingOutput = step2.trace.output;
+      const plannerOutput = finalTrace3.output;
+      const evaluatorOutput = step4.trace.output;
+
+      const finalCombinedRecommendation = evaluatorOutput.needsRoadmapAdjustment
+        ? `LIVE GEMINI ADAPTED PLAN (${role.title} · ${matchingOutput.readinessScore}% readiness): Progress Evaluator detected low assessment mastery in ${evaluatorOutput.detectedRegressionSkills.join(', ')} and passed feedback back to Learning Planner, which inserted targeted revision & practice ahead of ${matchingOutput.missingSkills.filter((s) => !evaluatorOutput.detectedRegressionSkills.includes(s)).join(', ') || 'your capstone'}.`
+        : `LIVE GEMINI ROADMAP READY (${role.title} · ${matchingOutput.readinessScore}% readiness): Leverage your strengths (${matchingOutput.matchedSkills.join(', ') || 'foundations'}) and close priority gaps: ${plannerOutput.orderedGapPriorities.join(' → ') || 'Capstone'}.`;
+
+      const livePipeline: AgentPipelineResult = {
+        runId: `run-gemini-${Date.now()}`,
+        executedAtLabel: `Executed live at ${checkedAt} via ${modelUsed}`,
+        executionMode: 'live-gemini',
+        geminiConfigured: true,
+        modelUsed,
+        modeBanner: `LIVE GEMINI ORCHESTRATION · ${modelUsed} (4 Sequential Server Calls${evaluatorOutput.needsRoadmapAdjustment ? ' + D→C Adaptation Pass' : ''})`,
+        adaptationApplied: evaluatorOutput.needsRoadmapAdjustment,
+        finalCombinedRecommendation,
+        traces: [step1.trace, step2.trace, finalTrace3, step4.trace],
+      };
+
+      const generatedModules = livePipeline.traces[2].output.generatedModules;
+      const computedBanner = bannerBuilder ? bannerBuilder(livePipeline) : undefined;
+
+      setGeminiHealth({
+        checking: false,
+        configured: true,
+        connected: true,
+        model: modelUsed,
+        mode: 'live-gemini',
+        message: `Live Gemini agents active (${modelUsed}).`,
+        lastCheckedAt: checkedAt,
+      });
+
+      setState((prev) => {
+        let nextMicrotasks = prev.microtasks;
+        let nextHistory = prev.skillLevelHistory;
+
+        if (triggeredSkillRegression && livePipeline.adaptationApplied) {
+          const revMod =
+            generatedModules.find((m) => m.isAdaptationInserted || m.phase === 'Revision') ??
+            generatedModules[0];
+          if (revMod) {
+            nextMicrotasks = [
+              createAdaptationMicrotask(triggeredSkillRegression.skillName, revMod),
+              ...prev.microtasks.filter((t) => t.moduleId !== revMod.id),
+            ];
+            nextHistory = [
+              {
+                id: `sh-adapt-${Date.now()}`,
+                skillName: triggeredSkillRegression.skillName,
+                fromLevel: triggeredSkillRegression.newVerifiedLevel,
+                toLevel: triggeredSkillRegression.newVerifiedLevel,
+                source: 'adaptation',
+                note: `Gemini Learning Planner inserted "${revMod.title}" at priority #1 after Progress Evaluator feedback.`,
+                timestampLabel: `Today · ${checkedAt}`,
+              },
+              ...prev.skillLevelHistory,
+            ];
+          }
+        }
+
+        return {
+          ...prev,
+          modules: syncModules ? generatedModules : prev.modules,
+          microtasks: nextMicrotasks,
+          skillLevelHistory: nextHistory,
+          agentPipelineRun: livePipeline,
+          adaptationBanner:
+            computedBanner !== undefined ? computedBanner : prev.adaptationBanner,
+          deadlineGoal: {
+            ...prev.deadlineGoal,
+            examOrGoalName: `${role.title} Portfolio Milestone`,
+            prioritySubjects:
+              livePipeline.traces[2].output.orderedGapPriorities.slice(0, 3).join(', ') ||
+              role.title,
+          },
+        };
+      });
+    } finally {
+      if (orchestrationSeqRef.current === seqId) {
+        setPipelineLoading(false);
+        setPipelineProgressLabel(null);
+      }
+    }
+  };
+
+  const checkGeminiHealth = async (probe = false): Promise<GeminiHealthStatus> => {
+    setGeminiHealth((prev) => ({ ...prev, checking: true }));
+    try {
+      const res = await fetch(`/api/gemini/health${probe ? '?probe=1' : ''}`);
+      const data = (await res.json()) as GeminiHealthStatus;
+      const nextStatus: GeminiHealthStatus = {
+        checking: false,
+        configured: Boolean(data.configured),
+        connected: Boolean(data.connected),
+        model: data.model || 'gemini-4-hydrogen',
+        mode: data.mode || (data.configured ? 'live-gemini' : 'demo-mode'),
+        message: data.message || 'Checked Gemini status.',
+        latencyMs: data.latencyMs,
+        lastCheckedAt:
+          data.lastCheckedAt ||
+          new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setGeminiHealth(nextStatus);
+      return nextStatus;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to reach /api/gemini/health.';
+      const fallbackStatus: GeminiHealthStatus = {
+        checking: false,
+        configured: false,
+        connected: false,
+        model: 'gemini-4-hydrogen',
+        mode: 'error',
+        message: msg,
+        lastCheckedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setGeminiHealth(fallbackStatus);
+      return fallbackStatus;
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void checkGeminiHealth(false).then((health) => {
+      if (!active) return;
+      if (!health.configured) {
+        setGeminiHealth(health);
+      }
+    });
+    return () => {
+      active = false;
+    };
+    // Run once on mount to discover server Gemini availability without consuming API quota
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const upsertProfileSkill = (name: string, kind: SkillKind, selfReportedLevel: number) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     const clampedLevel = Math.max(0, Math.min(5, Math.round(selfReportedLevel)));
     const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    setState((prev) => {
-      const existing = prev.profile.skills.find(
-        (s) => s.name.trim().toLowerCase() === trimmed.toLowerCase()
-      );
-      const fromLevel = existing ? existing.selfReportedLevel : 0;
-      const nextSkills = existing
-        ? prev.profile.skills.map((s) =>
-            s.id === existing.id
-              ? {
-                  ...s,
-                  kind,
-                  selfReportedLevel: clampedLevel,
-                  origin: s.verifiedLevel !== undefined ? ('both' as const) : ('self-reported' as const),
-                }
-              : s
-          )
-        : [
-            ...prev.profile.skills,
-            {
-              id: `sk-${Date.now()}`,
-              name: trimmed,
-              kind,
-              selfReportedLevel: clampedLevel,
-              origin: 'self-reported' as const,
-            },
-          ];
+    const prev = stateRef.current;
+    const existing = prev.profile.skills.find(
+      (s) => s.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    const fromLevel = existing ? existing.selfReportedLevel : 0;
+    const nextSkills = existing
+      ? prev.profile.skills.map((s) =>
+          s.id === existing.id
+            ? {
+                ...s,
+                kind,
+                selfReportedLevel: clampedLevel,
+                origin: s.verifiedLevel !== undefined ? ('both' as const) : ('self-reported' as const),
+              }
+            : s
+        )
+      : [
+          ...prev.profile.skills,
+          {
+            id: `sk-${Date.now()}`,
+            name: trimmed,
+            kind,
+            selfReportedLevel: clampedLevel,
+            origin: 'self-reported' as const,
+          },
+        ];
 
-      const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
+    const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
+    const historyEntry: SkillChangeRecord = {
+      id: `sh-${Date.now()}`,
+      skillName: trimmed,
+      fromLevel,
+      toLevel: clampedLevel,
+      source: 'self-update',
+      note: existing
+        ? `Updated self-reported rating (${fromLevel}/5 → ${clampedLevel}/5).`
+        : `Added self-reported ${kind} skill (${clampedLevel}/5).`,
+      timestampLabel: `Today · ${timeLabel}`,
+    };
+
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({
+        ...curr,
+        profile: nextProfile,
+        skillLevelHistory: [historyEntry, ...curr.skillLevelHistory],
+      }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: true,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-
-      const historyEntry: SkillChangeRecord = {
-        id: `sh-${Date.now()}`,
-        skillName: trimmed,
-        fromLevel,
-        toLevel: clampedLevel,
-        source: 'self-update',
-        note:
-          existing
-            ? `Updated self-reported rating (${fromLevel}/5 → ${clampedLevel}/5).`
-            : `Added self-reported ${kind} skill (${clampedLevel}/5).`,
-        timestampLabel: `Today · ${timeLabel}`,
-      };
-
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         modules: nextPipeline.traces[2].output.generatedModules,
-        skillLevelHistory: [historyEntry, ...prev.skillLevelHistory],
+        skillLevelHistory: [historyEntry, ...curr.skillLevelHistory],
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const removeProfileSkill = (id: string) => {
-    setState((prev) => {
-      const removed = prev.profile.skills.find((s) => s.id === id);
-      const nextSkills = prev.profile.skills.filter((s) => s.id !== id);
-      const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
+    const prev = stateRef.current;
+    const removed = prev.profile.skills.find((s) => s.id === id);
+    const nextSkills = prev.profile.skills.filter((s) => s.id !== id);
+    const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
+    const historyEntry: SkillChangeRecord[] = removed
+      ? [
+          {
+            id: `sh-${Date.now()}`,
+            skillName: removed.name,
+            fromLevel: removed.verifiedLevel ?? removed.selfReportedLevel,
+            toLevel: 0,
+            source: 'self-update',
+            note: `Removed "${removed.name}" from learner profile.`,
+            timestampLabel: 'Just now',
+          },
+        ]
+      : [];
+
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({
+        ...curr,
+        profile: nextProfile,
+        skillLevelHistory: [...historyEntry, ...curr.skillLevelHistory],
+      }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: true,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-      const historyEntry: SkillChangeRecord[] = removed
-        ? [
-            {
-              id: `sh-${Date.now()}`,
-              skillName: removed.name,
-              fromLevel: removed.verifiedLevel ?? removed.selfReportedLevel,
-              toLevel: 0,
-              source: 'self-update',
-              note: `Removed "${removed.name}" from learner profile.`,
-              timestampLabel: 'Just now',
-            },
-          ]
-        : [];
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         modules: nextPipeline.traces[2].output.generatedModules,
-        skillLevelHistory: [...historyEntry, ...prev.skillLevelHistory],
+        skillLevelHistory: [...historyEntry, ...curr.skillLevelHistory],
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const addCertification = (cert: Omit<CertificationRecord, 'id'>) => {
     if (!cert.title.trim()) return;
-    setState((prev) => {
-      const nextProfile: StudentProfile = {
-        ...prev.profile,
-        certifications: [
-          ...prev.profile.certifications,
-          { ...cert, id: `cert-${Date.now()}` },
-        ],
-      };
+    const prev = stateRef.current;
+    const nextProfile: StudentProfile = {
+      ...prev.profile,
+      certifications: [...prev.profile.certifications, { ...cert, id: `cert-${Date.now()}` }],
+    };
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({ ...curr, profile: nextProfile }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: false,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const removeCertification = (id: string) => {
-    setState((prev) => {
-      const nextProfile: StudentProfile = {
-        ...prev.profile,
-        certifications: prev.profile.certifications.filter((c) => c.id !== id),
-      };
+    const prev = stateRef.current;
+    const nextProfile: StudentProfile = {
+      ...prev.profile,
+      certifications: prev.profile.certifications.filter((c) => c.id !== id),
+    };
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({ ...curr, profile: nextProfile }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: false,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const addProject = (proj: Omit<ProjectRecord, 'id'>) => {
     if (!proj.title.trim()) return;
-    setState((prev) => {
-      const nextProfile: StudentProfile = {
-        ...prev.profile,
-        projects: [...prev.profile.projects, { ...proj, id: `proj-${Date.now()}` }],
-      };
+    const prev = stateRef.current;
+    const nextProfile: StudentProfile = {
+      ...prev.profile,
+      projects: [...prev.profile.projects, { ...proj, id: `proj-${Date.now()}` }],
+    };
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({ ...curr, profile: nextProfile }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: false,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const removeProject = (id: string) => {
-    setState((prev) => {
-      const nextProfile: StudentProfile = {
-        ...prev.profile,
-        projects: prev.profile.projects.filter((p) => p.id !== id),
-      };
+    const prev = stateRef.current;
+    const nextProfile: StudentProfile = {
+      ...prev.profile,
+      projects: prev.profile.projects.filter((p) => p.id !== id),
+    };
+    if (geminiHealthRef.current.configured) {
+      setState((curr) => ({ ...curr, profile: nextProfile }));
+      void executeAgentOrchestration({
+        profile: nextProfile,
+        assessments: prev.skillAssessments,
+        currentModules: prev.modules,
+        syncModules: false,
+      });
+    } else {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: nextProfile,
         assessments: prev.skillAssessments,
         currentModules: prev.modules,
       });
-      return {
-        ...prev,
+      setState((curr) => ({
+        ...curr,
         profile: nextProfile,
         agentPipelineRun: nextPipeline,
-      };
-    });
+      }));
+    }
   };
 
   const changeTargetRole = (roleId: CareerRoleId) => {
     const role = getCareerRoleById(roleId);
-    setState((prev) => {
-      const previousRole = prev.profile.careerNorthStar;
-      const nextProfile: StudentProfile = {
-        ...prev.profile,
-        targetRoleId: role.id,
-        careerNorthStar: role.title,
-      };
-      const nextPipeline = runAgentCollaborationPipeline({
-        profile: nextProfile,
-        assessments: prev.skillAssessments,
-        currentModules: prev.modules,
-      });
-      const matchingOut = nextPipeline.traces[1].output;
-      const plannerOut = nextPipeline.traces[2].output;
+    const prev = stateRef.current;
+    const previousRole = prev.profile.careerNorthStar;
+    const nextProfile: StudentProfile = {
+      ...prev.profile,
+      targetRoleId: role.id,
+      careerNorthStar: role.title,
+    };
 
-      const banner = `Scenario B Adapted (${previousRole} → ${role.title}): Career Matching recalculated ${matchingOut.readinessScore}% readiness (Matched: ${matchingOut.matchedSkills.join(', ') || 'None'} · Missing: ${matchingOut.missingSkills.join(', ') || 'None'}). Learning Planner generated a fresh ${plannerOut.generatedModules.length}-step roadmap.`;
+    setState((curr) => ({
+      ...curr,
+      profile: nextProfile,
+    }));
 
-      return {
-        ...prev,
-        profile: nextProfile,
-        modules: plannerOut.generatedModules,
-        agentPipelineRun: nextPipeline,
-        adaptationBanner: banner,
-        deadlineGoal: {
-          ...prev.deadlineGoal,
-          examOrGoalName: `${role.title} Portfolio Milestone`,
-          prioritySubjects: plannerOut.orderedGapPriorities.slice(0, 3).join(', ') || role.title,
-        },
-      };
+    void executeAgentOrchestration({
+      profile: nextProfile,
+      assessments: prev.skillAssessments,
+      currentModules: prev.modules,
+      syncModules: true,
+      bannerBuilder: (pipeline) => {
+        const matchingOut = pipeline.traces[1].output;
+        const plannerOut = pipeline.traces[2].output;
+        const modeTag = pipeline.executionMode === 'live-gemini' ? '[Live Gemini]' : '[Demo Mode]';
+        return `${modeTag} Scenario B Adapted (${previousRole} → ${role.title}): Career Matching recalculated ${matchingOut.readinessScore}% readiness (Matched: ${matchingOut.matchedSkills.join(', ') || 'None'} · Missing: ${matchingOut.missingSkills.join(', ') || 'None'}). Learning Planner generated a fresh ${plannerOut.generatedModules.length}-step roadmap.`;
+      },
     });
   };
 
@@ -1599,14 +2095,13 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   ): SkillAssessmentRecord => {
     const safeTotal = Math.max(1, total);
     const pct = Math.round((score / safeTotal) * 100);
-    // Map percentage to 1..5 verified level cleanly:
-    // <40% => 1, 40-59% => 2, 60-79% => 3, 80-94% => 4, >=95% => 5
     const newVerifiedLevel =
       pct >= 95 ? 5 : pct >= 80 ? 4 : pct >= 60 ? 3 : pct >= 40 ? 2 : 1;
     const triggeredAdaptation = pct < 60;
     const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    const existingSkill = state.profile.skills.find(
+    const prev = stateRef.current;
+    const existingSkill = prev.profile.skills.find(
       (s) => s.name.trim().toLowerCase() === skillName.trim().toLowerCase()
     );
     const previousEffectiveLevel = existingSkill
@@ -1630,119 +2125,89 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           : `Passed ${skillName} verification at ${pct}% (verified level ${newVerifiedLevel}/5).`),
     };
 
-    setState((prev) => {
-      const match = prev.profile.skills.find(
-        (s) => s.name.trim().toLowerCase() === skillName.trim().toLowerCase()
-      );
-      const nextSkills = match
-        ? prev.profile.skills.map((s) =>
-            s.id === match.id
-              ? {
-                  ...s,
-                  verifiedLevel: newVerifiedLevel,
-                  lastAssessedScore: pct,
-                  lastAssessedAt: `Today · ${timeLabel}`,
-                  origin: s.selfReportedLevel > 0 ? ('both' as const) : ('assessment-verified' as const),
-                }
-              : s
-          )
-        : [
-            ...prev.profile.skills,
-            {
-              id: `sk-${Date.now()}`,
-              name: skillName,
-              kind: 'technical' as const,
-              selfReportedLevel: 0,
-              verifiedLevel: newVerifiedLevel,
-              lastAssessedScore: pct,
-              lastAssessedAt: `Today · ${timeLabel}`,
-              origin: 'assessment-verified' as const,
-            },
-          ];
+    const match = prev.profile.skills.find(
+      (s) => s.name.trim().toLowerCase() === skillName.trim().toLowerCase()
+    );
+    const nextSkills = match
+      ? prev.profile.skills.map((s) =>
+          s.id === match.id
+            ? {
+                ...s,
+                verifiedLevel: newVerifiedLevel,
+                lastAssessedScore: pct,
+                lastAssessedAt: `Today · ${timeLabel}`,
+                origin: s.selfReportedLevel > 0 ? ('both' as const) : ('assessment-verified' as const),
+              }
+            : s
+        )
+      : [
+          ...prev.profile.skills,
+          {
+            id: `sk-${Date.now()}`,
+            name: skillName,
+            kind: 'technical' as const,
+            selfReportedLevel: 0,
+            verifiedLevel: newVerifiedLevel,
+            lastAssessedScore: pct,
+            lastAssessedAt: `Today · ${timeLabel}`,
+            origin: 'assessment-verified' as const,
+          },
+        ];
 
-      const nextAssessments = [record, ...prev.skillAssessments];
-      const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
-      const nextPipeline = runAgentCollaborationPipeline({
-        profile: nextProfile,
-        assessments: nextAssessments,
-        currentModules: prev.modules,
-      });
+    const nextAssessments = [record, ...prev.skillAssessments];
+    const nextProfile: StudentProfile = { ...prev.profile, skills: nextSkills };
+    const assessmentHistoryItem: SkillChangeRecord = {
+      id: `sh-${Date.now()}`,
+      skillName,
+      fromLevel: previousEffectiveLevel,
+      toLevel: newVerifiedLevel,
+      source: 'assessment',
+      note: record.note,
+      timestampLabel: `Today · ${timeLabel}`,
+    };
 
-      const nextModules = nextPipeline.traces[2].output.generatedModules;
-      const historyItems: SkillChangeRecord[] = [
-        {
-          id: `sh-${Date.now()}`,
-          skillName,
-          fromLevel: previousEffectiveLevel,
-          toLevel: newVerifiedLevel,
-          source: 'assessment',
-          note: record.note,
-          timestampLabel: `Today · ${timeLabel}`,
-        },
-      ];
+    setState((curr) => ({
+      ...curr,
+      profile: nextProfile,
+      skillAssessments: nextAssessments,
+      skillLevelHistory: [assessmentHistoryItem, ...curr.skillLevelHistory],
+    }));
 
-      let nextMicrotasks = prev.microtasks;
-      let nextBanner = prev.adaptationBanner;
-
-      if (triggeredAdaptation) {
-        const revMod = nextModules.find((m) => m.isAdaptationInserted);
-        if (revMod) {
-          const revTaskId = `mt-adapt-${Date.now()}`;
-          nextMicrotasks = [
-            {
-              id: revTaskId,
-              title: `[Adapted Revision] ${revMod.exercises?.[0] ?? revMod.questTitle}`,
-              moduleId: revMod.id,
-              moduleTitle: revMod.title,
-              estimatedMinutes: 20,
-              completed: false,
-              energyFit: 'low',
-              substeps: [
-                {
-                  id: `sub-adapt-1`,
-                  text: revMod.resources[0]?.title ?? `Review ${skillName} fundamentals`,
-                  done: false,
-                },
-                {
-                  id: `sub-adapt-2`,
-                  text: revMod.exercises?.[1] ?? `Complete guided ${skillName} check`,
-                  done: false,
-                },
-              ],
-            },
-            ...prev.microtasks,
-          ];
-          historyItems.unshift({
-            id: `sh-adapt-${Date.now() + 1}`,
-            skillName,
-            fromLevel: newVerifiedLevel,
-            toLevel: newVerifiedLevel,
-            source: 'adaptation',
-            note: `Learning Planner inserted "${revMod.title}" at priority #1 after Progress Evaluator alert.`,
-            timestampLabel: `Today · ${timeLabel}`,
-          });
+    void executeAgentOrchestration({
+      profile: nextProfile,
+      assessments: nextAssessments,
+      currentModules: prev.modules,
+      syncModules: true,
+      triggeredSkillRegression: triggeredAdaptation
+        ? { skillName, pct, newVerifiedLevel }
+        : undefined,
+      bannerBuilder: (pipeline) => {
+        const modeTag = pipeline.executionMode === 'live-gemini' ? '[Live Gemini]' : '[Demo Mode]';
+        if (triggeredAdaptation || pipeline.adaptationApplied) {
+          const revMod = pipeline.traces[2].output.generatedModules.find(
+            (m) => m.isAdaptationInserted || m.phase === 'Revision'
+          );
+          return `${modeTag} Scenario A Adapted (${skillName} scored ${pct}%): Progress Evaluator identified weakness → sent feedback to Learning Planner → inserted "${revMod?.title ?? `${skillName} Revision & Guided Practice`}" at priority #1 of your roadmap & Today microtasks.`;
         }
-        nextBanner = `Scenario A Adapted (${skillName} scored ${pct}%): Progress Evaluator identified weakness → Learning Planner inserted "${skillName} Revision & Guided Practice Lab" at the top of your roadmap & Today microtasks.`;
-      } else {
-        nextBanner = `Assessment verified: ${skillName} is now verified at ${newVerifiedLevel}/5 (${pct}%), updating Career Matching readiness to ${nextPipeline.traces[1].output.readinessScore}%.`;
-      }
-
-      return {
-        ...prev,
-        profile: nextProfile,
-        skillAssessments: nextAssessments,
-        skillLevelHistory: [...historyItems, ...prev.skillLevelHistory],
-        modules: nextModules,
-        microtasks: nextMicrotasks,
-        agentPipelineRun: nextPipeline,
-        adaptationBanner: nextBanner,
-      };
+        return `${modeTag} Assessment verified: ${skillName} is now verified at ${newVerifiedLevel}/5 (${pct}%), updating Career Matching readiness to ${pipeline.traces[1].output.readinessScore}%.`;
+      },
     });
 
     return record;
   };
 
-  const rerunAgentPipeline = (syncModules = true) => {
+  const rerunAgentPipeline = async (syncModules = true) => {
+    const prev = stateRef.current;
+    await executeAgentOrchestration({
+      profile: prev.profile,
+      assessments: prev.skillAssessments,
+      currentModules: prev.modules,
+      syncModules,
+    });
+  };
+
+  const runDemoFallbackPipeline = (syncModules = true) => {
+    setAiErrorMessage(null);
     setState((prev) => {
       const nextPipeline = runAgentCollaborationPipeline({
         profile: prev.profile,
@@ -1757,7 +2222,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  const askMentor = (question: string) => {
+  const askMentor = async (question: string) => {
     const trimmed = question.trim();
     if (!trimmed) return;
     const nowLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1768,20 +2233,121 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       timestampLabel: nowLabel,
     };
 
-    const reply = generateMentorResponse(trimmed, {
-      profile: state.profile,
-      pipeline: state.agentPipelineRun,
-      modules: state.modules,
-      assessments: state.skillAssessments,
-      skillHistory: state.skillLevelHistory,
-      focusMinutesToday: totalFocusMinutesToday,
-    });
+    const currentSnapshot = stateRef.current;
+    const historyPayload = currentSnapshot.mentorMessages.slice(-6).map((m) => ({
+      role: m.role,
+      text: m.text,
+    }));
 
     setState((prev) => ({
       ...prev,
-      mentorMessages: [...prev.mentorMessages, userMsg, reply],
+      mentorMessages: [...prev.mentorMessages, userMsg],
     }));
+    setMentorLoading(true);
+    setAiErrorMessage(null);
+
+    try {
+      const response = await fetch('/api/mentor/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: trimmed,
+          profile: currentSnapshot.profile,
+          pipeline: currentSnapshot.agentPipelineRun,
+          modules: currentSnapshot.modules,
+          assessments: currentSnapshot.skillAssessments,
+          skillHistory: currentSnapshot.skillLevelHistory,
+          focusMinutesToday: totalFocusMinutesToday,
+          history: historyPayload,
+        }),
+      });
+
+      const body = (await response.json().catch(() => ({}))) as {
+        message?: MentorMessage;
+        code?: string;
+        error?: string;
+      };
+
+      if (response.ok && body.message) {
+        const liveReply = body.message;
+        setGeminiHealth((prev) => ({
+          ...prev,
+          checking: false,
+          configured: true,
+          connected: true,
+          model: liveReply.modelUsed || 'gemini-4-hydrogen',
+          mode: 'live-gemini',
+        }));
+        setState((prev) => ({
+          ...prev,
+          mentorMessages: [...prev.mentorMessages, liveReply],
+        }));
+        return;
+      }
+
+      if (response.status === 503 || body.code === 'GEMINI_NOT_CONFIGURED') {
+        const notice =
+          body.error ||
+          'GEMINI_API_KEY is not configured on the server. Using clearly labeled Demo Mentor fallback.';
+        setGeminiHealth({
+          checking: false,
+          configured: false,
+          connected: false,
+          model: 'gemini-4-hydrogen',
+          mode: 'demo-mode',
+          message: notice,
+          lastCheckedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+
+        const demoReply = generateMentorResponse(trimmed, {
+          profile: currentSnapshot.profile,
+          pipeline: currentSnapshot.agentPipelineRun,
+          modules: currentSnapshot.modules,
+          assessments: currentSnapshot.skillAssessments,
+          skillHistory: currentSnapshot.skillLevelHistory,
+          focusMinutesToday: totalFocusMinutesToday,
+        });
+        setState((prev) => ({
+          ...prev,
+          mentorMessages: [...prev.mentorMessages, demoReply],
+        }));
+        return;
+      }
+
+      const errMsg = body.error || `Gemini AI Mentor failed (HTTP ${response.status}).`;
+      setAiErrorMessage(errMsg);
+      const errorReply: MentorMessage = {
+        id: `mentor-err-${Date.now()}`,
+        role: 'mentor',
+        text: `Live Gemini AI Mentor could not complete your request: ${errMsg}`,
+        timestampLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        executionStatus: 'error',
+        suggestedActions: ['Verify server GEMINI_API_KEY / quota and retry your question'],
+      };
+      setState((prev) => ({
+        ...prev,
+        mentorMessages: [...prev.mentorMessages, errorReply],
+      }));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Network error calling /api/mentor/chat.';
+      setAiErrorMessage(errMsg);
+      const errorReply: MentorMessage = {
+        id: `mentor-err-${Date.now()}`,
+        role: 'mentor',
+        text: `Live Gemini AI Mentor connection error: ${errMsg}`,
+        timestampLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        executionStatus: 'error',
+      };
+      setState((prev) => ({
+        ...prev,
+        mentorMessages: [...prev.mentorMessages, errorReply],
+      }));
+    } finally {
+      setMentorLoading(false);
+    }
   };
+
+  const dismissAiError = () => setAiErrorMessage(null);
 
   const dismissAdaptationBanner = () => {
     setState((prev) => ({ ...prev, adaptationBanner: null }));
@@ -1792,7 +2358,17 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     soundEngine.stop();
     setSoundPlaying(false);
-    setState(createDefaults());
+    setAiErrorMessage(null);
+    const fresh = createDefaults();
+    setState(fresh);
+    if (geminiHealthRef.current.configured) {
+      void executeAgentOrchestration({
+        profile: fresh.profile,
+        assessments: fresh.skillAssessments,
+        currentModules: fresh.modules,
+        syncModules: true,
+      });
+    }
   };
 
   const todayIso = formatIsoDate(new Date());
@@ -1904,7 +2480,15 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         changeTargetRole,
         submitSkillAssessment,
         rerunAgentPipeline,
+        runDemoFallbackPipeline,
         askMentor,
+        checkGeminiHealth,
+        geminiHealth,
+        pipelineLoading,
+        pipelineProgressLabel,
+        mentorLoading,
+        aiErrorMessage,
+        dismissAiError,
         dismissAdaptationBanner,
         totalFocusMinutesToday,
         totalFocusMinutesAllTime,

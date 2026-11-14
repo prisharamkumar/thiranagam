@@ -1,8 +1,8 @@
-import {
+import type {
   CareerRoleDefinition,
   CareerRoleId,
   SkillAssessmentQuestion,
-} from '../types';
+} from '../types.ts';
 
 export const CAREER_ROLES: CareerRoleDefinition[] = [
   {

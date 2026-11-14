@@ -336,12 +336,19 @@ export function runProgressEvaluatorAgent(
         'Verify self-reported skills with quick 3-4 question checks to unlock 100% readiness credit',
       ];
 
+  const requestedChanges = needsRoadmapAdjustment
+    ? detectedRegressionSkills.map(
+        (skill) => `Insert "${skill} Revision & Guided Practice Lab" at priority #1`
+      )
+    : [];
+
   return {
     needsRoadmapAdjustment,
     detectedRegressionSkills,
     averageAssessmentPct: avgAssessmentPct,
     roadmapCompletionPct,
     adjustmentReason,
+    requestedChanges,
     recommendedActions,
   };
 }
@@ -633,8 +640,10 @@ export function runAgentCollaborationPipeline(params: {
     : `ROADMAP READY (${role.title} · ${matchingOutput.readinessScore}% readiness): Keep leveraging your existing strengths (${matchingOutput.matchedSkills.join(', ') || 'core foundations'}) and close missing skills in order: ${plannerOutput.orderedGapPriorities.join(' → ') || 'Capstone'}.`;
 
   return {
-    runId: `run-${Date.now()}`,
+    runId: `run-demo-${Date.now()}`,
     executedAtLabel: `Executed at ${nowLabel}`,
+    executionMode: 'demo-mode',
+    geminiConfigured: false,
     modeBanner: DEMO_AGENT_MODE_LABEL,
     adaptationApplied: evaluatorOutput.needsRoadmapAdjustment,
     finalCombinedRecommendation,
@@ -644,6 +653,7 @@ export function runAgentCollaborationPipeline(params: {
         agentName: '1. Skill Analyst Agent',
         responsibility:
           'Analyses learner profile, certifications, projects & assessments; separates self-reported skills from assessment-verified evidence.',
+        executionStatus: 'demo-fallback',
         modeLabel: DEMO_AGENT_MODE_LABEL,
         inputSummary: `${profile.skills.length} profile skills, ${profile.certifications.length} certs, ${profile.projects.length} projects, ${assessments.length} assessments`,
         outputSummary: `${analystOutput.strengths.length} strengths · ${analystOutput.weaknesses.length} weaknesses/unverified bridges · ${analystOutput.missingSkills.length} missing skills`,
@@ -656,6 +666,7 @@ export function runAgentCollaborationPipeline(params: {
         agentName: '2. Career Matching Agent',
         responsibility:
           'Compares verified and self-reported skills against target role weights to compute an explainable readiness score.',
+        executionStatus: 'demo-fallback',
         modeLabel: DEMO_AGENT_MODE_LABEL,
         inputSummary: `Skill Analyst profile for "${role.title}" (${role.requirements.length} benchmarks)`,
         outputSummary: `${matchingOutput.readinessScore}% readiness · Matched: [${matchingOutput.matchedSkills.join(', ') || 'None'}] · Missing: [${matchingOutput.missingSkills.join(', ') || 'None'}]`,
@@ -668,6 +679,7 @@ export function runAgentCollaborationPipeline(params: {
         agentName: '3. Learning Planner Agent',
         responsibility:
           'Converts identified skill gaps & evaluator alerts into an ordered roadmap with courses, tutorials, practical exercises & projects.',
+        executionStatus: 'demo-fallback',
         modeLabel: DEMO_AGENT_MODE_LABEL,
         inputSummary: `Gaps: [${matchingOutput.missingSkills.concat(matchingOutput.partialSkills).join(', ')}] · Adaptation flags: [${evaluatorOutput.detectedRegressionSkills.join(', ') || 'None'}]`,
         outputSummary: `${plannerOutput.generatedModules.length} ordered modules (${plannerOutput.gapToResourceMap.length} gap-to-resource links)`,
@@ -680,6 +692,7 @@ export function runAgentCollaborationPipeline(params: {
         agentName: '4. Progress Evaluator Agent',
         responsibility:
           'Evaluates assessment results & roadmap completion; detects regressions (<60%) and signals roadmap adjustment.',
+        executionStatus: 'demo-fallback',
         modeLabel: DEMO_AGENT_MODE_LABEL,
         inputSummary: `${assessments.length} assessment record(s) · Latest: ${evaluatorInput.latestAssessment}`,
         outputSummary: evaluatorOutput.needsRoadmapAdjustment
@@ -813,6 +826,7 @@ export function generateMentorResponse(
     timestampLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     referencedWeaknesses: weaknessNames.length > 0 ? weaknessNames : matching.missingSkills,
     suggestedActions,
+    executionStatus: 'demo-fallback',
   };
 }
 

@@ -411,6 +411,19 @@ export interface SkillChangeRecord {
   timestampLabel: string;
 }
 
+export type AIExecutionMode = 'live-gemini' | 'demo-mode' | 'error';
+
+export interface GeminiHealthStatus {
+  checking: boolean;
+  configured: boolean;
+  connected: boolean;
+  model: string;
+  mode: AIExecutionMode;
+  message: string;
+  latencyMs?: number;
+  lastCheckedAt?: string;
+}
+
 export interface MentorMessage {
   id: string;
   role: 'user' | 'mentor';
@@ -418,6 +431,9 @@ export interface MentorMessage {
   timestampLabel: string;
   referencedWeaknesses?: string[];
   suggestedActions?: string[];
+  executionStatus?: 'live-gemini' | 'demo-fallback' | 'error';
+  modelUsed?: string;
+  latencyMs?: number;
 }
 
 export interface SkillVerificationComparison {
@@ -477,6 +493,7 @@ export interface ProgressEvaluatorOutput {
   averageAssessmentPct: number | null;
   roadmapCompletionPct: number;
   adjustmentReason: string;
+  requestedChanges?: string[];
   recommendedActions: string[];
 }
 
@@ -484,6 +501,9 @@ export interface AgentTrace<TInput = unknown, TOutput = unknown> {
   agentId: 'skill-analyst' | 'career-matching' | 'learning-planner' | 'progress-evaluator';
   agentName: string;
   responsibility: string;
+  executionStatus: 'live-gemini' | 'demo-fallback' | 'error';
+  modelUsed?: string;
+  latencyMs?: number;
   modeLabel: string;
   inputSummary: string;
   outputSummary: string;
@@ -495,6 +515,10 @@ export interface AgentTrace<TInput = unknown, TOutput = unknown> {
 export interface AgentPipelineResult {
   runId: string;
   executedAtLabel: string;
+  executionMode: AIExecutionMode;
+  geminiConfigured: boolean;
+  modelUsed?: string;
+  errorDetail?: string;
   modeBanner: string;
   traces: [
     AgentTrace<unknown, SkillAnalystOutput>,
@@ -505,4 +529,5 @@ export interface AgentPipelineResult {
   finalCombinedRecommendation: string;
   adaptationApplied: boolean;
 }
+
 
