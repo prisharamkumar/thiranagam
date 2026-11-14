@@ -5,6 +5,10 @@ import {
   runLiveGeminiMentor,
   type MentorChatRequestPayload,
 } from '../../server/geminiOrchestrator.ts';
+import {
+  normalizeMentorHistory,
+  normalizeMentorQuestion,
+} from '../../server/requestLimits.ts';
 
 interface VercelRequestLike extends IncomingMessage {
   body?: unknown;
@@ -50,23 +54,24 @@ export default async function handler(req: VercelRequestLike, res: VercelRespons
 
   try {
     const body = await readJsonBody<Partial<MentorChatRequestPayload>>(req);
-    if (!body || typeof body.question !== 'string' || !body.question.trim() || !body.profile || !body.pipeline) {
+    const question = normalizeMentorQuestion(body?.question);
+    if (!body || !question || !body.profile || !body.pipeline) {
       sendJson(res, 400, {
         code: 'INVALID_PAYLOAD',
-        error: 'Request must include question, profile, and pipeline context.',
+        error: 'Request must include question (1–2000 characters), profile, and pipeline context.',
       });
       return;
     }
 
     const message = await runLiveGeminiMentor({
-      question: body.question.trim(),
+      question,
       profile: body.profile,
       pipeline: body.pipeline,
-      modules: Array.isArray(body.modules) ? body.modules : [],
-      assessments: Array.isArray(body.assessments) ? body.assessments : [],
-      skillHistory: Array.isArray(body.skillHistory) ? body.skillHistory : [],
+      modules: Array.isArray(body.modules) ? body.modules.slice(0, 100) : [],
+      assessments: Array.isArray(body.assessments) ? body.assessments.slice(0, 100) : [],
+      skillHistory: Array.isArray(body.skillHistory) ? body.skillHistory.slice(0, 100) : [],
       focusMinutesToday: typeof body.focusMinutesToday === 'number' ? body.focusMinutesToday : 0,
-      history: Array.isArray(body.history) ? body.history : [],
+      history: normalizeMentorHistory(body.history),
     });
     sendJson(res, 200, { message });
   } catch (err) {
