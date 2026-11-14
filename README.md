@@ -44,7 +44,7 @@ The browser calls server API routes; the Gemini API key is read from the server 
 
 ## Run locally
 
-Requirements: Node.js 20+ and npm.
+Requirements: Node.js 20.19+ or 22.12+ and npm.
 
 ```bash
 npm install
@@ -79,7 +79,7 @@ npm run lint
 npm run build
 ```
 
-The test suite covers core evidence-handling rules used by skill analysis, including missing, self-reported, assessment-verified, and revision-needed skills, plus alias matching.
+The test suite covers evidence-aware skill analysis, alias matching, and bounded AI Mentor request/history handling. Mentor requests are limited to 2,000 characters, recent history is capped at 12 messages, and context arrays are bounded before model calls.
 
 ## API routes
 
