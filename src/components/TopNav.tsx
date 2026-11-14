@@ -43,7 +43,7 @@ const NAV_ITEMS: {
   { id: 'roadmap', label: 'My Roadmap', icon: Map },
   { id: 'arcade', label: 'Learning Arcade', icon: Gamepad2 },
   { id: 'habitat', label: 'My Habitat', icon: Trees },
-  { id: 'insights', label: 'Insights', icon: BarChart3 },
+  { id: 'insights', label: 'Insights & Mentor', icon: BarChart3 },
   { id: 'sanctum', label: 'Sanctum', icon: Sparkles },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
