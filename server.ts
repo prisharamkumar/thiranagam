@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizeMentorHistory, normalizeMentorQuestion } from './server/requestLimits.ts';
 import {
   GeminiConfigError,
   GeminiUpstreamError,
@@ -129,23 +130,24 @@ export function createApp() {
   app.post('/api/mentor/chat', async (req: Request, res: Response) => {
     try {
       const body = req.body as Partial<MentorChatRequestPayload> | undefined;
-      if (!body || typeof body.question !== 'string' || !body.question.trim() || !body.profile || !body.pipeline) {
+      const question = normalizeMentorQuestion(body?.question);
+      if (!body || !question || !body.profile || !body.pipeline) {
         res.status(400).json({
           code: 'INVALID_PAYLOAD',
-          error: 'Request must include question, profile, and pipeline context.',
+          error: 'Request must include question (1–2000 characters), profile, and pipeline context.',
         });
         return;
       }
 
       const message = await runLiveGeminiMentor({
-        question: body.question.trim(),
+        question,
         profile: body.profile,
         pipeline: body.pipeline,
-        modules: Array.isArray(body.modules) ? body.modules : [],
-        assessments: Array.isArray(body.assessments) ? body.assessments : [],
-        skillHistory: Array.isArray(body.skillHistory) ? body.skillHistory : [],
+        modules: Array.isArray(body.modules) ? body.modules.slice(0, 100) : [],
+        assessments: Array.isArray(body.assessments) ? body.assessments.slice(0, 100) : [],
+        skillHistory: Array.isArray(body.skillHistory) ? body.skillHistory.slice(0, 100) : [],
         focusMinutesToday: typeof body.focusMinutesToday === 'number' ? body.focusMinutesToday : 0,
-        history: Array.isArray(body.history) ? body.history : [],
+        history: normalizeMentorHistory(body.history),
       });
       res.status(200).json({ message });
     } catch (err) {
