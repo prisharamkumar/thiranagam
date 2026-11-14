@@ -5,6 +5,7 @@ import {
   findMatchingLearnerSkill,
 } from '../src/agents/specialistAgents.ts';
 import type { SkillRecord } from '../src/types.ts';
+import { normalizeMentorHistory, normalizeMentorQuestion } from '../server/requestLimits.ts';
 
 const skill = (overrides: Partial<SkillRecord> = {}): SkillRecord => ({
   id: 'skill-1',
@@ -49,4 +50,33 @@ test('learner skill matching is case-insensitive and supports aliases', () => {
   const learnerSkills = [skill({ name: 'JS' })];
   assert.equal(findMatchingLearnerSkill('JavaScript', ['js'], learnerSkills), learnerSkills[0]);
   assert.equal(findMatchingLearnerSkill('Python', ['py'], learnerSkills), undefined);
+});
+
+test('mentor questions are trimmed and capped at 2,000 characters', () => {
+  assert.equal(normalizeMentorQuestion('  Help me plan  '), 'Help me plan');
+  assert.equal(normalizeMentorQuestion('   '), null);
+  assert.equal(normalizeMentorQuestion('x'.repeat(2001)), null);
+});
+
+test('mentor history keeps only the latest 12 valid, bounded messages', () => {
+  const input = Array.from({ length: 14 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'mentor',
+    text: `message-${index}`,
+  }));
+  input.push({ role: 'system', text: 'must be discarded' });
+  const result = normalizeMentorHistory(input);
+  assert.equal(result.length, 12);
+  assert.equal(result[0].text, 'message-2');
+  assert.equal(result[11].text, 'message-13');
+  assert.ok(result.every((entry) => entry.text.length <= 2000));
+});
+
+test('mentor history discards malformed entries and bounds long messages', () => {
+  const result = normalizeMentorHistory([
+    null,
+    { role: 'user', text: 'x'.repeat(2500) },
+    { role: 'assistant', text: 'invalid role' },
+  ]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].text.length, 2000);
 });
