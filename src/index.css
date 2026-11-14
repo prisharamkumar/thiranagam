@@ -1,0 +1,421 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Fraunces", "Noto Sans Tamil", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", "Noto Sans Tamil", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* =========================================================
+   THIRANAGAM IMMERSIVE WORLD THEME ENGINE (5 Worlds x Light/Dark)
+   ========================================================= */
+
+:root {
+  --sp-canvas: #f6efe4;
+  --sp-surface: #fffdf9;
+  --sp-surface-muted: #ede2d2;
+  --sp-border: rgba(77, 50, 34, 0.16);
+  --sp-ink: #241a13;
+  --sp-ink-muted: #624e40;
+  --sp-accent: #4d3222;
+  --sp-accent-hover: #382316;
+  --sp-accent-ink: #fdf9f2;
+  --sp-accent-soft: #efe2d1;
+  --sp-secondary: #8c6239;
+  --sp-secondary-soft: #f5eadb;
+  --sp-warm: #a8642e;
+  --sp-warm-soft: #f8ead6;
+  --sp-danger: #9e3f35;
+  --sp-danger-soft: #f9eae8;
+
+  --sp-font-body: "Plus Jakarta Sans", "Noto Sans Tamil", system-ui, sans-serif;
+  --sp-font-display: "Fraunces", "Noto Sans Tamil", Georgia, serif;
+  --sp-line-height: 1.58;
+  --sp-letter-spacing: 0em;
+  --sp-container-max: 1220px;
+}
+
+/* 1. CAFÉ — Roasted Espresso, Ceramic Cups, Pastries & Oak Surfaces */
+[data-theme="cafe"][data-color-mode="light"] {
+  --sp-canvas: #faf3e8;
+  --sp-surface: #fffdf9;
+  --sp-surface-muted: #f1e3d1;
+  --sp-border: rgba(114, 68, 36, 0.16);
+  --sp-ink: #2a1c13;
+  --sp-ink-muted: #69503f;
+  --sp-accent: #7a4828;
+  --sp-accent-hover: #5e351c;
+  --sp-accent-ink: #fffaf2;
+  --sp-accent-soft: #f3e2ce;
+  --sp-secondary: #3e5e4b;
+  --sp-secondary-soft: #e6efe9;
+  --sp-warm: #b56c32;
+  --sp-warm-soft: #f9ebd6;
+}
+
+[data-theme="cafe"][data-color-mode="dark"] {
+  --sp-canvas: #18120e;
+  --sp-surface: #231a14;
+  --sp-surface-muted: #2f231b;
+  --sp-border: rgba(233, 198, 160, 0.16);
+  --sp-ink: #f7ede1;
+  --sp-ink-muted: #c8b29b;
+  --sp-accent: #d49a60;
+  --sp-accent-hover: #bf864c;
+  --sp-accent-ink: #1a110b;
+  --sp-accent-soft: #38281c;
+  --sp-secondary: #83b395;
+  --sp-secondary-soft: #1f3025;
+  --sp-warm: #df9e5b;
+  --sp-warm-soft: #37281a;
+}
+
+/* 2. RAINFOREST — Lush Foliage, Moss, Mushrooms & Canopy Fireflies */
+[data-theme="rainforest"][data-color-mode="light"] {
+  --sp-canvas: #f2f6ef;
+  --sp-surface: #fbfdfb;
+  --sp-surface-muted: #e3ece1;
+  --sp-border: rgba(36, 82, 59, 0.15);
+  --sp-ink: #182b20;
+  --sp-ink-muted: #4b6554;
+  --sp-accent: #26533b;
+  --sp-accent-hover: #1b3d2b;
+  --sp-accent-ink: #f6fbf7;
+  --sp-accent-soft: #dfece1;
+  --sp-secondary: #a86933;
+  --sp-secondary-soft: #f6eadc;
+  --sp-warm: #a86933;
+  --sp-warm-soft: #f6eadc;
+}
+
+[data-theme="rainforest"][data-color-mode="dark"] {
+  --sp-canvas: #101913;
+  --sp-surface: #17241c;
+  --sp-surface-muted: #203127;
+  --sp-border: rgba(164, 206, 174, 0.16);
+  --sp-ink: #edf4ee;
+  --sp-ink-muted: #a4beaa;
+  --sp-accent: #7ab38b;
+  --sp-accent-hover: #649e76;
+  --sp-accent-ink: #0f1912;
+  --sp-accent-soft: #213729;
+  --sp-secondary: #dda067;
+  --sp-secondary-soft: #342619;
+  --sp-warm: #dda067;
+  --sp-warm-soft: #342619;
+}
+
+/* 3. BEACH — Ocean Tidewash, Soft Sand, Seashells & Horizon Boats */
+[data-theme="beach"][data-color-mode="light"] {
+  --sp-canvas: #f2f8f8;
+  --sp-surface: #ffffff;
+  --sp-surface-muted: #e3eff0;
+  --sp-border: rgba(29, 100, 114, 0.15);
+  --sp-ink: #142c31;
+  --sp-ink-muted: #48676d;
+  --sp-accent: #1d6472;
+  --sp-accent-hover: #144d58;
+  --sp-accent-ink: #f4fbfc;
+  --sp-accent-soft: #dceff1;
+  --sp-secondary: #b5844b;
+  --sp-secondary-soft: #f6ecde;
+  --sp-warm: #c5955c;
+  --sp-warm-soft: #f8eee0;
+}
+
+[data-theme="beach"][data-color-mode="dark"] {
+  --sp-canvas: #0e1a1e;
+  --sp-surface: #15252a;
+  --sp-surface-muted: #1c3138;
+  --sp-border: rgba(160, 214, 222, 0.16);
+  --sp-ink: #ecf5f6;
+  --sp-ink-muted: #9ebec3;
+  --sp-accent: #6ebcc8;
+  --sp-accent-hover: #5aa7b3;
+  --sp-accent-ink: #0c181b;
+  --sp-accent-soft: #1b343b;
+  --sp-secondary: #d7ab75;
+  --sp-secondary-soft: #31281d;
+  --sp-warm: #d7ab75;
+  --sp-warm-soft: #31281d;
+}
+
+/* 4. LIBRARY — Warm Timber Shelves, Reading Lamps, Book Spines & Paper */
+[data-theme="library"][data-color-mode="light"] {
+  --sp-canvas: #f5eee3;
+  --sp-surface: #fcfaf5;
+  --sp-surface-muted: #eadfce;
+  --sp-border: rgba(75, 50, 34, 0.16);
+  --sp-ink: #251b14;
+  --sp-ink-muted: #5f4d40;
+  --sp-accent: #4b3222;
+  --sp-accent-hover: #362216;
+  --sp-accent-ink: #fcf9f2;
+  --sp-accent-soft: #ede1d2;
+  --sp-secondary: #8d6136;
+  --sp-secondary-soft: #f5eadb;
+  --sp-warm: #9e6a35;
+  --sp-warm-soft: #f7ebda;
+}
+
+[data-theme="library"][data-color-mode="dark"] {
+  --sp-canvas: #16120f;
+  --sp-surface: #201a16;
+  --sp-surface-muted: #2a221c;
+  --sp-border: rgba(219, 193, 159, 0.16);
+  --sp-ink: #f4ebdd;
+  --sp-ink-muted: #c2b19d;
+  --sp-accent: #cda06a;
+  --sp-accent-hover: #b88b55;
+  --sp-accent-ink: #19130e;
+  --sp-accent-soft: #32271e;
+  --sp-secondary: #98b18a;
+  --sp-secondary-soft: #222c1e;
+  --sp-warm: #d69d61;
+  --sp-warm-soft: #332619;
+}
+
+/* 5. COZY CABIN — Cedar Wood, Hearth Ember Glow & Woven Textiles */
+[data-theme="cabin"][data-color-mode="light"] {
+  --sp-canvas: #f7efe6;
+  --sp-surface: #fffcf8;
+  --sp-surface-muted: #eee0d1;
+  --sp-border: rgba(132, 63, 38, 0.15);
+  --sp-ink: #291b16;
+  --sp-ink-muted: #684f45;
+  --sp-accent: #843f26;
+  --sp-accent-hover: #672f1b;
+  --sp-accent-ink: #fff8f3;
+  --sp-accent-soft: #f4e1d7;
+  --sp-secondary: #335342;
+  --sp-secondary-soft: #e3ece7;
+  --sp-warm: #b56534;
+  --sp-warm-soft: #f8e9d9;
+}
+
+[data-theme="cabin"][data-color-mode="dark"] {
+  --sp-canvas: #181210;
+  --sp-surface: #231a17;
+  --sp-surface-muted: #2f231e;
+  --sp-border: rgba(233, 193, 170, 0.16);
+  --sp-ink: #f6ebe5;
+  --sp-ink-muted: #c8b0a6;
+  --sp-accent: #df8b6b;
+  --sp-accent-hover: #c97758;
+  --sp-accent-ink: #1e120e;
+  --sp-accent-soft: #3b241d;
+  --sp-secondary: #83b297;
+  --sp-secondary-soft: #1f3026;
+  --sp-warm: #e29e65;
+  --sp-warm-soft: #38261a;
+}
+
+/* Typography & Heading Style Presets */
+[data-font-preset="sans"] {
+  --sp-font-body: "Plus Jakarta Sans", "Noto Sans Tamil", system-ui, sans-serif;
+  --sp-letter-spacing: 0em;
+}
+
+[data-font-preset="serif"] {
+  --sp-font-body: "Lora", "Noto Sans Tamil", Georgia, serif;
+  --sp-letter-spacing: 0em;
+}
+
+[data-font-preset="dyslexia"] {
+  --sp-font-body: "Lexend", "Noto Sans Tamil", system-ui, sans-serif;
+  --sp-letter-spacing: 0.025em;
+}
+
+[data-heading-style="editorial"] {
+  --sp-font-display: "Fraunces", "Noto Sans Tamil", Georgia, serif;
+}
+
+[data-heading-style="clean"] {
+  --sp-font-display: "Plus Jakarta Sans", "Noto Sans Tamil", system-ui, sans-serif;
+}
+
+[data-heading-style="classic"] {
+  --sp-font-display: "Lora", "Noto Sans Tamil", Georgia, serif;
+}
+
+/* High-Contrast Refinement */
+[data-contrast="high"] {
+  --sp-border: rgba(128, 128, 128, 0.45);
+}
+
+/* Subtle World Backdrop Texture Patterns */
+[data-theme="cafe"] body,
+[data-theme="cafe"] .sp-world-canvas {
+  background-image: radial-gradient(rgba(122, 72, 40, 0.045) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+[data-theme="rainforest"] body,
+[data-theme="rainforest"] .sp-world-canvas {
+  background-image: radial-gradient(circle at 15% 15%, rgba(38, 83, 59, 0.06), transparent 42%);
+}
+
+[data-theme="beach"] body,
+[data-theme="beach"] .sp-world-canvas {
+  background-image: linear-gradient(180deg, rgba(29, 100, 114, 0.05) 0%, transparent 32%);
+}
+
+[data-theme="library"] body,
+[data-theme="library"] .sp-world-canvas {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(75, 50, 34, 0.03) 32px
+  );
+}
+
+[data-theme="cabin"] body,
+[data-theme="cabin"] .sp-world-canvas {
+  background-image: radial-gradient(circle at 85% 18%, rgba(181, 101, 52, 0.07), transparent 40%);
+}
+
+/* =========================================================
+   LIVING COMPANION & VISUAL REWARD KEYFRAMES
+   ========================================================= */
+
+@keyframes th-breathe {
+  0%, 100% { transform: scaleY(1) translateY(0px); }
+  50% { transform: scaleY(1.045) translateY(-1.5px); }
+}
+
+@keyframes th-cat-stretch {
+  0% { transform: scaleX(1) scaleY(1) translateY(0); }
+  35% { transform: scaleX(1.09) scaleY(0.92) translateY(2px); }
+  70% { transform: scaleX(0.96) scaleY(1.06) translateY(-2px); }
+  100% { transform: scaleX(1) scaleY(1) translateY(0); }
+}
+
+@keyframes th-walk-steps {
+  0% { transform: translateX(-10px) translateY(0px); }
+  25% { transform: translateX(-3px) translateY(-3px); }
+  50% { transform: translateX(4px) translateY(0px); }
+  75% { transform: translateX(10px) translateY(-3px); }
+  100% { transform: translateX(0px) translateY(0px); }
+}
+
+@keyframes th-tail-sway {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(9deg); }
+}
+
+@keyframes th-hop {
+  0%, 100% { transform: translateY(0px); }
+  45% { transform: translateY(-7px); }
+}
+
+@keyframes th-wing-flap {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-16deg) translateY(-2px); }
+}
+
+@keyframes th-float-slow {
+  0%, 100% { transform: translateY(0px); opacity: 0.72; }
+  50% { transform: translateY(-6px); opacity: 1; }
+}
+
+@keyframes th-steam-rise {
+  0% { transform: translateY(3px) scaleX(0.95); opacity: 0.2; }
+  50% { transform: translateY(-3px) scaleX(1.05); opacity: 0.65; }
+  100% { transform: translateY(-8px) scaleX(0.95); opacity: 0.1; }
+}
+
+@keyframes th-honey-drop {
+  0% { transform: translateY(-14px) scale(0.8); opacity: 0; }
+  25% { opacity: 1; }
+  80% { transform: translateY(16px) scale(1); opacity: 1; }
+  100% { transform: translateY(22px) scale(0.6); opacity: 0; }
+}
+
+@keyframes th-pop-in {
+  0% { transform: scale(0.88) translateY(8px); opacity: 0; }
+  100% { transform: scale(1) translateY(0px); opacity: 1; }
+}
+
+@keyframes th-idle-settle {
+  0%, 100% { transform: scaleY(1) translateY(0px); }
+  50% { transform: scaleY(1.022) translateY(-0.8px); }
+}
+
+@keyframes th-lamp-glow {
+  0%, 100% { opacity: 0.78; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+.anim-breathe { animation: th-breathe 3.6s ease-in-out infinite; transform-origin: center bottom; }
+.anim-idle-settle { animation: th-idle-settle 4.4s ease-in-out infinite; transform-origin: center bottom; }
+.anim-lamp-glow { animation: th-lamp-glow 4.8s ease-in-out infinite; transform-origin: center; }
+.anim-cat-stretch { animation: th-cat-stretch 1.8s ease-in-out infinite; transform-origin: center bottom; }
+.anim-walk-steps { animation: th-walk-steps 2.4s ease-in-out infinite; }
+.anim-tail-sway { animation: th-tail-sway 2.8s ease-in-out infinite; transform-origin: left center; }
+.anim-hop { animation: th-hop 1.4s ease-in-out infinite; }
+.anim-wing-flap { animation: th-wing-flap 1.6s ease-in-out infinite; transform-origin: right center; }
+.anim-float-slow { animation: th-float-slow 4.2s ease-in-out infinite; }
+.anim-steam { animation: th-steam-rise 3.2s ease-in-out infinite; }
+.anim-honey-drop { animation: th-honey-drop 1.4s ease-in infinite; }
+.anim-pop-in { animation: th-pop-in 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Low-Stimulation & Reduced Motion */
+[data-low-stim="true"] *,
+[data-reduced-motion="true"] *,
+[data-anim="off"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+html,
+body {
+  background-color: var(--sp-canvas);
+  color: var(--sp-ink);
+  font-family: var(--sp-font-body);
+  line-height: var(--sp-line-height);
+  letter-spacing: var(--sp-letter-spacing);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.font-display {
+  font-family: var(--sp-font-display);
+  text-wrap: balance;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-page-container {
+  max-width: var(--sp-container-max);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Custom warm scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 138, 130, 0.28);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 138, 130, 0.45);
+}

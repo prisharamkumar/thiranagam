@@ -1,0 +1,6 @@
+{
+  "name": "Thiranagam",
+  "description": "Your Learning Universe. Your Pace. Your Progress. An adaptive, ADHD-first learning sanctuary for university students.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
